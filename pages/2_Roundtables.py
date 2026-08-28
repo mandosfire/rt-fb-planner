@@ -1,50 +1,48 @@
 import streamlit as st
 import pandas as pd
-from utils.data_loader import load_schedule_data
 from utils.roundtable_solver import generate_roundtable_schedule
 
 st.set_page_config(page_title="Roundtable Planning", layout="wide")
 st.title("Roundtable Planning")
 
-st.header("1. Upload Moderator Schedule")
-mod_file = st.file_uploader("Moderator Schedule (CSV)", type="csv", key="mod_rt")
-
-st.header("2. Rulesets & Settings")
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Global Settings")
-    num_roundtables = st.number_input("Total roundtables for the week", min_value=1, value=5)
-    weekly_quota = st.number_input("Target roundtables per moderator", min_value=1, value=1)
+    st.subheader("Moderator Schedule")
+    mod_template = pd.DataFrame([{"id": "", "day": "Monday", "shift": "Morning"}])
+    edited_mods = st.data_editor(mod_template, num_rows="dynamic", key="rt_mod_grid")
     
+    st.subheader("Global Settings")
+    weekly_quota = st.number_input("Target roundtables per moderator (Weekly)", min_value=1, value=1)
+
 with col2:
-    st.subheader("Roundtable Constraints")
-    min_mods = st.number_input("Min Moderators per roundtable", min_value=1, value=4)
-    max_mods = st.number_input("Max Moderators per roundtable", min_value=1, value=8)
-    allowed_shifts = st.multiselect("Allowed Shifts", ["Morning", "Mid", "Night"], default=["Mid"])
+    st.subheader("Individual Roundtable Rules")
+    st.write("Define each roundtable, headcount limits, and which shifts are allowed to attend.")
+    
+    rt_template = pd.DataFrame({
+        "RT Name": ["RT 1", "RT 2", "RT 3"],
+        "Min Mods": [4, 4, 4],
+        "Max Mods": [8, 8, 8],
+        "Allow Morning": [True, False, False],
+        "Allow Midday": [True, True, True],
+        "Allow Night": [False, False, True]
+    })
+    edited_rts = st.data_editor(rt_template, num_rows="dynamic", key="rt_rules_grid")
 
 if st.button("Generate Roundtable Schedule", type="primary"):
-    if mod_file:
-        mods = load_schedule_data(mod_file)
-        days = list(set([m['day'] for m in mods]))
+    valid_mods = edited_mods[edited_mods["id"].str.strip() != ""].to_dict('records')
+    valid_rts = edited_rts[edited_rts["RT Name"].str.strip() != ""].to_dict('records')
+    
+    if valid_mods and valid_rts:
+        days = list(set([m['day'] for m in valid_mods]))
         
-        settings = {
-            'target_quota': weekly_quota,
-            'min_mods': min_mods,
-            'max_mods': max_mods,
-            'allowed_shifts': allowed_shifts
-        }
-        
-        with st.spinner("Calculating optimal mathematical schedule (this may take a moment)..."):
-            result_df = generate_roundtable_schedule(mods, num_roundtables, days, settings)
+        with st.spinner("Calculating optimal mathematical schedule..."):
+            result_df = generate_roundtable_schedule(valid_mods, valid_rts, days, weekly_quota)
             
         if result_df is not None:
             st.success("Optimal Schedule Generated!")
             st.dataframe(result_df, use_container_width=True)
-            
-            csv_data = result_df.to_csv(index=False).encode('utf-8')
-            st.download_button("Download CSV", data=csv_data, file_name="roundtable_schedule.csv", mime="text/csv")
         else:
-            st.error("Could not find a valid schedule with these constraints. Try lowering the minimums, raising the maximums, or adding more roundtables.")
+            st.error("Could not find a mathematically valid schedule. Try adjusting your minimums or adding more roundtables.")
     else:
-        st.error("Please upload the moderator schedule first.")
+        st.error("Please enter data for both the schedule and the roundtable rules.")
